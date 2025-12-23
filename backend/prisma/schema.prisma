@@ -1,0 +1,235 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Seed script configuration
+// Run with: npm run prisma:seed
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model - Base user table
+model User {
+  id          String   @id @default(cuid())
+  phone       String   @unique
+  name        String
+  email       String?
+  role        UserRole @default(CUSTOMER)
+  language    String   @default("en") // "en" | "hi"
+  pincode     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  customerProfile Customer?
+  collectorProfile Collector?
+  address         Address?
+  pickups         PickupRequest[]
+  transactions    Transaction[]
+  
+  @@index([phone])
+  @@index([role])
+  @@map("users")
+}
+
+// Address model
+model Address {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  landmark  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("addresses")
+}
+
+// Customer profile
+model Customer {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletBalance Decimal  @default(0) @db.Decimal(10, 2)
+  totalPickups  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("customers")
+}
+
+// Collector profile
+model Collector {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        CollectorStatus @default(PENDING)
+  pincodes      String[] // Array of pincodes
+  rating        Decimal  @default(0) @db.Decimal(3, 2)
+  totalPickups  Int      @default(0)
+  totalEarnings Decimal  @default(0) @db.Decimal(10, 2)
+  commissionRate Int     @default(15) // Percentage
+  joinedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  assignedPickups PickupRequest[]
+  
+  @@index([status])
+  @@map("collectors")
+}
+
+// Waste pricing
+model WastePricing {
+  id          String   @id @default(cuid())
+  type        WasteType @unique
+  pricePerKg  Decimal  @db.Decimal(10, 2)
+  minQuantity Decimal  @db.Decimal(5, 2)
+  icon        String
+  labelEn     String
+  labelHi     String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("waste_pricing")
+}
+
+// Pickup request
+model PickupRequest {
+  id                  String        @id @default(cuid())
+  customerId          String
+  customer            User          @relation(fields: [customerId], references: [id])
+  address             Json          // Address object
+  status              PickupStatus  @default(REQUESTED)
+  scheduledDate       DateTime
+  scheduledSlotId     String        // "morning" | "afternoon" | "evening"
+  collectorId         String?
+  collector           Collector?    @relation(fields: [collectorId], references: [id])
+  
+  // Pricing
+  totalEstimatedWeight Decimal?     @db.Decimal(8, 2)
+  totalActualWeight    Decimal?     @db.Decimal(8, 2)
+  totalEstimatedAmount Decimal?     @db.Decimal(10, 2)
+  totalActualAmount    Decimal?     @db.Decimal(10, 2)
+  convenienceFee       Decimal?     @db.Decimal(10, 2)
+  priceLockExpiresAt   DateTime?
+  
+  // Multi-item support
+  items                Json?        // Array of WasteBagItem
+  
+  // Metadata
+  assistedMode         Boolean      @default(false)
+  notes                String?
+  photoUrl             String?
+  
+  // Timestamps
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  completedAt          DateTime?
+  paidAt               DateTime?
+
+  @@index([customerId])
+  @@index([collectorId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@map("pickup_requests")
+}
+
+// Transaction
+model Transaction {
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  pickupId    String?
+  type        TransactionType
+  amount      Decimal           @db.Decimal(10, 2)
+  description String
+  status      TransactionStatus @default(PENDING)
+  upiId       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([pickupId])
+  @@index([type])
+  @@index([status])
+  @@map("transactions")
+}
+
+// OTP storage (temporary)
+model Otp {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+  @@map("otps")
+}
+
+// Admin settings
+model AdminSettings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("admin_settings")
+}
+
+enum UserRole {
+  CUSTOMER
+  COLLECTOR
+  ADMIN
+}
+
+enum PickupStatus {
+  REQUESTED
+  ASSIGNED
+  ON_THE_WAY
+  WEIGHING
+  PICKED
+  PAID
+  CANCELLED
+}
+
+enum CollectorStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+  PAYOUT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum WasteType {
+  PAPER
+  PLASTIC
+  METAL
+  EWASTE
+  GLASS
+  MIXED
+}
+
